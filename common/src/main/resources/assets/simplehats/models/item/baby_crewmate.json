@@ -1,9 +1,10 @@
 {
+	"format_version": "1.9.0",
+	"credit": "Made by Miffen Kop!",
 	"parent": "simplehats:item/hatparent2",
 	"texture_size": [32, 32],
 	"textures": {
-		"0": "simplehats:item/hats/baby_crewmate",
-		"particle": "simplehats:item/hats/baby_crewmate"
+		"0": "simplehats:item/hats/baby_crewmate"
 	},
 	"elements": [
 		{
@@ -21,7 +22,6 @@
 		{
 			"from": [8.75, 2.75, 4],
 			"to": [10.75, 4.75, 6],
-			"rotation": {"angle": 0, "axis": "y", "origin": [16, 0, 0]},
 			"faces": {
 				"north": {"uv": [5.5, 7, 4.5, 8], "texture": "#0", "tintindex": 0},
 				"east": {"uv": [4.5, 5, 5.5, 6], "texture": "#0", "tintindex": 0},
