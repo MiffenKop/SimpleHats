@@ -1,5 +1,5 @@
 {
-	"parent": "simplehats:item/bandana"
+	"parent": "simplehats:item/bandana",
 	"textures": {
 		"0": "simplehats:item/hats/bandanargb"
 	}
