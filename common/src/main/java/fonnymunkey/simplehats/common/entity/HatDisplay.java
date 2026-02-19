@@ -8,8 +8,6 @@ import net.minecraft.core.particles.BlockParticleOption;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
-import net.minecraft.nbt.NbtOps;
-import net.minecraft.nbt.Tag;
 import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
@@ -24,6 +22,7 @@ import net.minecraft.world.entity.*;
 import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.entity.projectile.AbstractArrow;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.Level;
@@ -93,11 +92,12 @@ public class HatDisplay extends LivingEntity {
     public void addAdditionalSaveData(CompoundTag compound) {
         super.addAdditionalSaveData(compound);
         ListTag listTag = new ListTag();
-
+        
         ItemStack itemStack = this.hatItemSlots.get(0);
-        Tag compoundTag = ItemStack.CODEC.encodeStart(NbtOps.INSTANCE, itemStack).mapOrElse(e -> e, $ -> new CompoundTag());
+        CompoundTag compoundTag = new CompoundTag();
+        if(!itemStack.isEmpty()) itemStack.save(compoundTag);
         listTag.add(compoundTag);
-
+        
         compound.put("HatItem", listTag);
     }
 
@@ -106,7 +106,7 @@ public class HatDisplay extends LivingEntity {
         super.readAdditionalSaveData(compound);
         if(compound.contains("HatItem", 9)) {
             ListTag listTag = compound.getList("HatItem", 10);
-            this.hatItemSlots.set(0, ItemStack.parse(this.registryAccess(), listTag.getFirst()).orElse(ItemStack.EMPTY));
+            this.hatItemSlots.set(0, ItemStack.of(listTag.getCompound(0)));
         }
     }
 
@@ -150,7 +150,7 @@ public class HatDisplay extends LivingEntity {
     private boolean swapItem(Player player, ItemStack stack, InteractionHand hand) {
         ItemStack itemStack = this.getItemBySlot(null);
         if(!stack.isEmpty() && !(stack.getItem() instanceof HatItem)) return false;
-        if(player.hasInfiniteMaterials() && itemStack.isEmpty() && !stack.isEmpty()) {
+        if(player.getAbilities().instabuild && itemStack.isEmpty() && !stack.isEmpty()) {
             ItemStack itemStack2 = stack.copy();
             itemStack2.setCount(1);
             this.setItemSlot(null, itemStack2);
@@ -177,69 +177,65 @@ public class HatDisplay extends LivingEntity {
 
     @Override
     public boolean hurt(DamageSource source, float amount) {
-        if(!this.isRemoved()) {
-            if(this.level() instanceof ServerLevel serverLevel) {
-                if(source.is(DamageTypeTags.BYPASSES_INVULNERABILITY)) {
+        if(!this.level().isClientSide && !this.isRemoved()) {
+            if(source.is(DamageTypeTags.BYPASSES_INVULNERABILITY)) {
+                this.kill();
+                return false;
+            }
+            else if(!this.isInvulnerableTo(source)) {
+                if(source.is(DamageTypeTags.IS_EXPLOSION)) {
+                    this.onBreak(source);
                     this.kill();
                     return false;
                 }
-                else if(!this.isInvulnerableTo(source)) {
-                    if(source.is(DamageTypeTags.IS_EXPLOSION)) {
-                        this.onBreak(serverLevel, source);
-                        this.kill();
-                        return false;
-                    }
-                    else if(source.is(DamageTypeTags.IGNITES_ARMOR_STANDS)) {
-                        if(this.isOnFire()) {
-                            this.updateHealth(serverLevel, source, 0.15F);
-                        }
-                        else {
-                            this.igniteForSeconds(5);
-                        }
-                        return false;
-                    }
-                    else if(source.is(DamageTypeTags.BURNS_ARMOR_STANDS) && this.getHealth() > 0.5F) {
-                        this.updateHealth(serverLevel, source, 4.0F);
-                        return false;
+                else if(source.is(DamageTypeTags.IGNITES_ARMOR_STANDS)) {
+                    if(this.isOnFire()) {
+                        this.updateHealth(source, 0.15F);
                     }
                     else {
-                        boolean flag1 = source.is(DamageTypeTags.CAN_BREAK_ARMOR_STAND);
-                        boolean flag = source.is(DamageTypeTags.ALWAYS_KILLS_ARMOR_STANDS);
-                        if (!flag1 && !flag) {
-                            return false;
-                        } else {
-                            Entity var7 = source.getEntity();
-                            if (var7 instanceof Player) {
-                                Player player = (Player)var7;
-                                if (!player.getAbilities().mayBuild) {
-                                    return false;
-                                }
-                            }
-                            
-                            if (source.isCreativePlayer()) {
-                                this.playBreakSound();
-                                this.spawnBreakParticles();
-                                this.kill();
-                                return true;
-                            } else {
-                                long i = serverLevel.getGameTime();
-                                if (i - this.lastHit > 5L && !flag) {
-                                    serverLevel.broadcastEntityEvent(this, (byte)32);
-                                    this.gameEvent(GameEvent.ENTITY_DAMAGE, source.getEntity());
-                                    this.lastHit = i;
-                                } else {
-                                    this.breakAndDropItem(serverLevel, source);
-                                    this.spawnBreakParticles();
-                                    this.kill();
-                                }
-                                
-                                return true;
-                            }
-                        }
+                        this.setSecondsOnFire(5);
                     }
+                    return false;
+                }
+                else if(source.is(DamageTypeTags.BURNS_ARMOR_STANDS) && this.getHealth() > 0.5F) {
+                    this.updateHealth(source, 4.0F);
+                    return false;
                 }
                 else {
-                    return false;
+                    boolean flag = source.getDirectEntity() instanceof AbstractArrow;
+                    boolean flag1 = flag && ((AbstractArrow)source.getDirectEntity()).getPierceLevel() > 0;
+                    boolean flag2 = "player".equals(source.getMsgId());
+                    if (!flag2 && !flag) {
+                        return false;
+                    } else {
+                        Entity var7 = source.getEntity();
+                        if (var7 instanceof Player) {
+                            Player player = (Player)var7;
+                            if (!player.getAbilities().mayBuild) {
+                                return false;
+                            }
+                        }
+                        
+                        if (source.isCreativePlayer()) {
+                            this.playBreakSound();
+                            this.spawnBreakParticles();
+                            this.kill();
+                            return flag1;
+                        } else {
+                            long i = this.level().getGameTime();
+                            if (i - this.lastHit > 5L && !flag) {
+                                this.level().broadcastEntityEvent(this, (byte)32);
+                                this.gameEvent(GameEvent.ENTITY_DAMAGE, source.getEntity());
+                                this.lastHit = i;
+                            } else {
+                                this.breakAndDropItem(source);
+                                this.spawnBreakParticles();
+                                this.kill();
+                            }
+                            
+                            return true;
+                        }
+                    }
                 }
             }
             else {
@@ -270,10 +266,10 @@ public class HatDisplay extends LivingEntity {
         }
     }
 
-    private void updateHealth(ServerLevel level, DamageSource source, float dmg) {
+    private void updateHealth(DamageSource source, float dmg) {
         float f = this.getHealth() - dmg;
         if(f <= 0.5F) {
-            this.onBreak(level, source);
+            this.onBreak(source);
             this.kill();
         }
         else {
@@ -282,14 +278,14 @@ public class HatDisplay extends LivingEntity {
         }
     }
 
-    private void breakAndDropItem(ServerLevel level, DamageSource source) {
+    private void breakAndDropItem(DamageSource source) {
         Block.popResource(this.level(), this.blockPosition(), new ItemStack(SimpleHatsCommon.MOD_REGISTRY.getHatDisplayItem()));
-        this.onBreak(level, source);
+        this.onBreak(source);
     }
 
-    private void onBreak(ServerLevel level, DamageSource source) {
+    private void onBreak(DamageSource source) {
         this.playBreakSound();
-        this.dropAllDeathLoot(level, source);
+        this.dropAllDeathLoot(source);
 
         ItemStack itemStack = this.hatItemSlots.get(0);
         if(!itemStack.isEmpty()) {
@@ -310,8 +306,8 @@ public class HatDisplay extends LivingEntity {
     }
     
     @Override
-    public Vec3 getVehicleAttachmentPoint(Entity vehicle) {
-        return new Vec3(0.0, 0.1, 0.0);
+    public double getMyRidingOffset() {
+        return 0.1D;
     }
 
     @Override
@@ -363,9 +359,9 @@ public class HatDisplay extends LivingEntity {
     public boolean attackable() {
         return false;
     }
-
+    
     @Override
-    public EntityDimensions getDefaultDimensions(Pose pose) {
+    public EntityDimensions getDimensions(Pose pose) {
         return this.getType().getDimensions();
     }
 
@@ -384,8 +380,8 @@ public class HatDisplay extends LivingEntity {
     }
 
     @Override
-    protected void defineSynchedData(SynchedEntityData.Builder builder) {
-        super.defineSynchedData(builder);
-        builder.define(DATA_CLIENT_FLAGS, (byte)0);
+    protected void defineSynchedData() {
+        super.defineSynchedData();
+        this.entityData.define(DATA_CLIENT_FLAGS, (byte)0);
     }
 }
